@@ -19,7 +19,7 @@ from PyQt4 import QtGui, QtCore
 import sys
 
 class CGraph():
-    def __init__(self, fig, plt, ax, ctrl_sys, df):
+    def __init__(self, fig, plt, ax, ctrl_sys, df, datfile):
         self.fig = fig
         self.plt = plt
         self.ax = ax
@@ -46,6 +46,9 @@ class CGraph():
         box = ax.get_position()
         self.ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
         
+		#Title
+        self.fig.canvas.set_window_title(datfile)
+		
         # Cursor 1
         self.cur1_en = False
         self.lx1 = ax.axhline(color='r')  # the horiz line
@@ -202,18 +205,19 @@ class CGraph():
             return bot,top
 
         lines = self.ax.get_lines()
-        bot,top = np.inf, -np.inf
+        bot, top = np.inf, -np.inf
 
         for line in lines:
             label = line.get_label()
             if label in self.df.columns.values:   # remove unused u'_line0'
                 if line.get_visible():
                     new_bot, new_top = get_bottom_top(label)
-                    if new_bot < bot: 
+                    new_bot = float(new_bot) # 0.02<inf : false
+                    new_top = float(new_top)
+                    if new_bot < bot:                        
                         bot = new_bot
                     if new_top > top: 
                         top = new_top
-                        
         h = top - bot
         top = top + margin*h
         bot = bot - margin*h
@@ -223,13 +227,13 @@ class CGraph():
         
 class MyWidget(QtGui.QWidget):
     
-    def __init__(self, fig, plt, ax, df, parent=None):
+    def __init__(self, fig, plt, ax, df, datfile, parent=None):
         self.legend = []
         self.ax = ax
         self.df = df
         
         QtGui.QWidget.__init__(self, parent)
-        self.setWindowTitle('Select Columns')
+        self.setWindowTitle(datfile)
         self.setGeometry(20,50,150,150)
 
         self.grid=QtGui.QGridLayout()
@@ -299,7 +303,7 @@ class MyWidget(QtGui.QWidget):
         
         # Graph
         ctrl_sys = ControlSys(fig, ax)
-        self.cg = CGraph(fig, plt, ax, ctrl_sys, df)
+        self.cg = CGraph(fig, plt, ax, ctrl_sys, df, datfile)
    
     def closeEvent(self, event):
         print "Closing GUI"
@@ -370,12 +374,15 @@ class MyWidget(QtGui.QWidget):
         self.cb[i].setCheckState(2) #check checkbox
         self.cg.set_visible(i, True) #make visiabel
         
-def graph_csv(datfile, no_header, ion):
+def graph_csv(datfile, no_header, ion, d):
     # read csv to array
     if no_header:
         df = pd.read_csv(datfile, sep=',', header=None)
     else:
         df = pd.read_csv(datfile, sep=',', header=0)
+    
+    if d:
+        df.drop(df.index[0:1], inplace=True)
     
     fig, ax = plt.subplots(1, 1)
     
@@ -389,7 +396,7 @@ def graph_csv(datfile, no_header, ion):
     screen_rect = app.desktop().screenGeometry()
     width, height = screen_rect.width(), screen_rect.height()
 
-    w = MyWidget(fig, plt, ax, df)
+    w = MyWidget(fig, plt, ax, df, datfile)
     w.show()
     #window size
     top = w.frameGeometry().top()
@@ -414,7 +421,9 @@ if __name__ == '__main__':
                         help="The CSV file has no header column")
     parser.add_argument("-ion", action='store_true',
                         help="Interactive mode on")
+    parser.add_argument("-d", action='store_true',
+                        help="remove 2nd row")
     # Require at least one column name
     args = parser.parse_args()
     
-    graph_csv(args.datafile, args.no_header, args.ion)
+    graph_csv(args.datafile, args.no_header, args.ion, args.d)
