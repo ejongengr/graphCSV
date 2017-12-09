@@ -3,31 +3,49 @@
 Created on Sat Feb 27 15:08:12 2016
 
 @author: Jason
+
+- use x-axis data
+- seperate curve
+- multiply or offset data by factor
+- show graph statistics
+-
+
 """
 
-from argparse import ArgumentParser
+import argparse
+import datetime as dt
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 from matplotlib import widgets
 from matplotlib.widgets import Cursor
+#from matplotlib.dates import DateFormatter
 # https://pypi.python.org/pypi/mpldatacursor#downloads
 # from mpldatacursor import datacursor
 from matplot_cursor import FollowDotCursor
 from matplot_control import ControlSys
 import numpy as np
 import pandas as pd
-from PyQt4 import QtGui, QtCore
+from PyQt5.QtWidgets import (
+#from PyQt4.QtGui import (
+    QApplication, QWidget, QVBoxLayout, QPushButton, QLabel,
+	QGridLayout, QCheckBox, QComboBox, QScrollArea, QStatusBar
+    )
+from PyQt5 import QtCore
+#from PyQt4 import QtCore
+from PyQt5.QtCore import QObject, pyqtSignal
+#from PyQt4.QtCore import QObject, pyqtSignal
 import sys
 
 class CGraph():
-    def __init__(self, fig, plt, ax, ctrl_sys, df, datfile):
+    def __init__(self, fig, ax, ctrl_sys, df, datfile):
         self.fig = fig
-        self.plt = plt
         self.ax = ax
         self.ctrl = ctrl_sys
         
         self.df = df
         self.col_len = len(df.columns)
         self.lst_graph = [None for i in range(self.col_len)]
+        self.index = range(len(df))
         self.minmax = {}
         
         #close event
@@ -70,10 +88,16 @@ class CGraph():
         self.txt1 = ax.text(0.7, 0.9, '', transform=ax.transAxes)
         self.txt2 = ax.text(0.7, 0.85, '', transform=ax.transAxes)
         self.txt3 = ax.text(0.7, 0.8, '', transform=ax.transAxes)
+        self.txt_dt = ax.text(0.1, 0.9, '', transform=ax.transAxes)
 
         self.cursor_on(1, False)
         self.cursor_on(2, False)
-        
+
+        #self.plt.gcf().autofmt_xdate()
+        # Print Datetime on status bar
+        self.tscol = None # timestamp column name
+        self.tsindx = self.index[0] # timestamp column index
+        #ax.format_coord = self.make_format()
 
     def onpress(self, event):
         if event.button == 1:   # mouse left button press
@@ -88,12 +112,19 @@ class CGraph():
             self.Rbtn_Pressed = False
 
     def move_mouse(self, event):
+        if self.tscol != None:
+            self.tsindx = np.searchsorted(self.index, [event.xdata])[0]
+            date = self.toDate(self.index[self.tsindx])
+            self.txt_dt.set_text('%s' % (date))
+            
         if not event.inaxes:
+            plt.draw()
             return
         if self.fig.canvas.manager.toolbar._active is not None:
         # toolbar is not trying to grab clicks (either through pan or zoom)
-            return
-        
+            plt.draw()
+            return       
+ 
         x, y = event.xdata, event.ydata
 
         if self.cur1_en and self.Lbtn_Pressed:
@@ -120,22 +151,44 @@ class CGraph():
             dx = self.xr - self.xl
             dy = self.yr - self.yl
             self.txt3.set_text('dx=%1.2f, dy=%1.2f\n' % (dx, dy))
-
-        self.plt.draw()
+        
+        plt.draw()
 
     def handle_close(self, event):
         print('Closed Figure!')
         sys.exit()
         
+    def toDate(self, ts):
+        # input : timestamp
+        # output : datetime
+         return dt.datetime.fromtimestamp(int(ts)).strftime('%Y-%m-%d %H:%M:%S')
+    
     def load_graph(self, i):
         col_name = self.df.columns[i]
-        p, = self.ax.plot(self.df[col_name], label=col_name, marker='.')
+        try:
+            p, = self.ax.plot(self.index, self.df[col_name], label=col_name, marker='.')
+        except:
+            print (col_name, ":Value Error changed to NaN(Not A Number) !!!")
+            for k, mem in enumerate(self.df[col_name]):
+                try:
+                    float(mem)
+                    self.df.set_value(k, col_name, np.float64(mem))
+                except ValueError:
+                    #pass
+                    self.df.set_value(k, col_name, np.float64(np.nan))
+            p, = self.ax.plot(self.index, self.df[col_name], label=col_name, marker='.')
         self.lst_graph[i] = p
         # Update legend
         self.legend.append(p)
         # Put a legend to the right of the current axis
         self.ax.legend(handles=self.legend, loc='center left', bbox_to_anchor=(1, 0.5))
-                
+
+    def reset_xdata(self):    
+        for p in enumerate(self.lst_graph):
+            if p[1] != None:
+                p[1].set_xdata(self.index)
+        self.update_draw()
+        
     def update_draw(self):
         self.ax.legend(handles=self.legend, loc='center left', bbox_to_anchor=(1, 0.5))
         self.fig.canvas.draw()             
@@ -190,6 +243,18 @@ class CGraph():
         else:
             self.y2 = self.df[str(header)]
 
+    def select_index(self, index):
+        if index == None:
+            self.index = range(len(self.df))
+            self.x1 = self.index
+            self.x2 = self.index
+        else:
+            self.index = self.df[str(index)]
+            self.x1 = self.index
+            self.x2 = self.index
+        self.ax.set_xlim(min(self.index),max(self.index))
+        self.reset_xdata()
+     
     def autoscale_y(self, margin=0.5):
         """This function rescales the y-axis based on the data that is visible given the current xlim of the axis.
         ax -- a matplotlib axes object
@@ -223,90 +288,144 @@ class CGraph():
         bot = bot - margin*h
 
         self.ax.set_ylim(bot,top)    
-        
-        
-class MyWidget(QtGui.QWidget):
+
+    def set_timestamp(self, ts_colname):
+        # set timestamp column name
+        self.tscol = ts_colname
+        if ts_colname == None:
+            self.txt_dt.set_text('')
+            def pretty_num(x):
+                return "{:,}".format(x)
+            self.ax.fmt_xdata = pretty_num
+        else:
+            self.ax.fmt_xdata = self.toDate
+                
+class MyWidget(QWidget):
     
-    def __init__(self, fig, plt, ax, df, datfile, parent=None):
+    def __init__(self, fig, ax, df, title, parent=None):
+        super(MyWidget, self).__init__(parent)
+        #super().__init__()
         self.legend = []
         self.ax = ax
         self.df = df
         
-        QtGui.QWidget.__init__(self, parent)
-        self.setWindowTitle(datfile)
-        self.setGeometry(20,50,150,150)
+        # Graph
+        ctrl_sys = ControlSys(fig, ax)
+        self.cg = CGraph(fig, ax, ctrl_sys, df, title)
 
-        self.grid=QtGui.QGridLayout()
+        self.setWindowTitle(title)
+        self.setGeometry(5,30,400,680)
+        
+        # Vbox
+        self.topLayout = QVBoxLayout(self)
+
+        # grid
+        # message -> QLayout: Attempting to add QLayout "" to MyWidget "", which already has a layout
+        self.grid=QGridLayout()
 
         # Line
         #self.grid.addWidget(self.Line,0,0)
 
         #combo box
-        self.combo_L = QtGui.QComboBox(self)
-        self.combo_R = QtGui.QComboBox(self)
-        for header in df.columns.values:
+        self.combo_L = QComboBox(self)
+        self.combo_R = QComboBox(self)
+        self.combo_I = QComboBox(self)
+        for hd in df.columns.values:
+            header = hd #str(unicode(hd)) #unicode(hd, 'cp949') # Korean character
             self.combo_L.addItem(header)
             self.combo_R.addItem(header)
-        self.connect(self.combo_L,QtCore.SIGNAL('currentIndexChanged(QString)'),
-                    lambda: self.select_cursor_data(1))
-        self.connect(self.combo_R,QtCore.SIGNAL('currentIndexChanged(QString)'),
-                    lambda: self.select_cursor_data(2))
+            self.combo_I.addItem(header)
         
+        # Check Box
         self.grid.addWidget(self.combo_L,0,0)
-        self.cb_L = QtGui.QCheckBox("L cursor", self)
-        self.connect(self.cb_L, QtCore.SIGNAL('stateChanged(int)'),
-                        self.cursor_on)
+        self.cb_L = QCheckBox("L cursor", self)
         self.grid.addWidget(self.cb_L, 0, 1)
 
         self.grid.addWidget(self.combo_R,1,0)
-        self.cb_R = QtGui.QCheckBox("R cursor", self)
-        self.connect(self.cb_R, QtCore.SIGNAL('stateChanged(int)'),
-                        self.cursor_on)
+        self.cb_R = QCheckBox("R cursor", self)
         self.grid.addWidget(self.cb_R, 1, 1)
-       
+      
+        self.grid.addWidget(self.combo_I,2,0)
+        self.cb_I = QCheckBox("Select X-axis", self)
+        self.grid.addWidget(self.cb_I, 2, 1)
+
         # Push Button
-        self.all_Visible=QtGui.QPushButton('Show All', self)
-        self.connect(self.all_Visible, QtCore.SIGNAL('clicked()'),self.AllVisible)
-        self.all_Hide=QtGui.QPushButton('Hide All', self)
-        self.connect(self.all_Hide, QtCore.SIGNAL('clicked()'),self.AllHide)
-        self.grid.addWidget(self.all_Visible,2,0)
-        self.grid.addWidget(self.all_Hide,3,0)
+        self.all_Visible=QPushButton('Show All', self)
+        self.all_Visible.clicked.connect(self.AllVisible)
+        self.all_Hide=QPushButton('Hide All', self)
+        self.all_Hide.clicked.connect(self.AllHide)
+        self.grid.addWidget(self.all_Visible,4,0)
+        self.grid.addWidget(self.all_Hide,5,0)
 
         # Check Box
-        self.cb_scale = QtGui.QCheckBox("Auto Fit Height", self)
+        self.cb_TS = QCheckBox("X-axis is TimeStamp", self)
+        self.grid.addWidget(self.cb_TS, 4, 1)
+        self.cb_scale = QCheckBox("Auto Fit Height", self)
         self.cb_scale.setCheckState(2)
-        self.connect(self.cb_scale, QtCore.SIGNAL('stateChanged(int)'),
-                        self.ToggelAutoScale)
-        self.grid.addWidget(self.cb_scale, 3, 1)
+        self.grid.addWidget(self.cb_scale, 5, 1)
         self.b_autoscale = True
-        
+
+        self.topLayout.addLayout(self.grid)
+       
+        # Scrollable Check Box
+        self.scrollArea = QScrollArea(self)
+        self.scrollArea.setWidgetResizable(True)
+        self.scrollAreaWidgetContents = QWidget(self.scrollArea)
+        self.scrollAreaWidgetContents.setGeometry(QtCore.QRect(5,30,400,680))
+        self.scrollArea.setWidget(self.scrollAreaWidgetContents)
+        self.topLayout.addWidget(self.scrollArea)
+
+        self.gridScroll = QGridLayout(self.scrollAreaWidgetContents)
         self.cb = []
-        i = 6   # layout index
+        i = 0   # layout index
         for header in [column for column in df]:
-            c = QtGui.QCheckBox(header, self)                            
-            self.connect(c, QtCore.SIGNAL('stateChanged(int)'),
-                     self.ToggleVisibility)
+            c = QCheckBox(header, self)                            
+            c.stateChanged.connect(self.ToggleVisibility)
             col_number = 2 # how many columns 
             j = (i-2) // col_number + 2
             k = (i-2) % col_number
-            self.grid.addWidget(c, j, k)
+            self.gridScroll.addWidget(c, j, k)
             i += 1
             self.cb.append(c)            
         
         # Status bar
-        self.StatusBar = QtGui.QStatusBar(self)
-        self.grid.addWidget(self.StatusBar, i, 0)
+        self.StatusBar = QStatusBar(self)
+        self.topLayout.addWidget(self.StatusBar)
         self.StatusBar.showMessage("Happy Day  ")
 
-        self.setLayout(self.grid)
+        self.setLayout(self.topLayout)
         #self.Line,QtCore.SLOT('setText(QString)'))
         
-        # Graph
-        ctrl_sys = ControlSys(fig, ax)
-        self.cg = CGraph(fig, plt, ax, ctrl_sys, df, datfile)
-   
+        self.combo_L.activated.connect(lambda: self.select_cursor_data(1))
+        self.combo_R.activated.connect(lambda: self.select_cursor_data(2))
+        self.combo_I.activated.connect(self.select_index)
+        self.cb_L.stateChanged.connect(self.cursor_on)
+        self.cb_R.stateChanged.connect(self.cursor_on)
+        self.cb_I.stateChanged.connect(self.index_on)
+        self.cb_TS.stateChanged.connect(self.timestamp_on)
+        self.cb_scale.stateChanged.connect(self.ToggelAutoScale)
+    
+    def index_on(self):
+        if self.cb_I.isChecked():
+            idx = self.combo_I.currentText()
+            self.cg.select_index(idx)
+        else:
+            self.cg.select_index(None)
+            
+    def select_index(self):
+        self.cb_I.setCheckState(2)
+        idx = self.combo_I.currentText()
+        self.cg.select_index(idx)
+
+    def timestamp_on(self):
+        if self.cb_TS.isChecked():
+            idx = self.combo_I.currentText()
+            self.cg.set_timestamp(idx)
+        else:
+            self.cg.set_timestamp(None)
+                        
     def closeEvent(self, event):
-        print "Closing GUI"
+        print ("Closing GUI")
         sys.exit()
 
     def AllVisible(self):
@@ -349,7 +468,6 @@ class MyWidget(QtGui.QWidget):
             self.cg.autoscale_y()
             self.cg.update_draw()             
 
- 
     def cursor_on(self):
         if self.cb_L.isChecked():
             self.cg.cursor_on(1, True)
@@ -374,16 +492,7 @@ class MyWidget(QtGui.QWidget):
         self.cb[i].setCheckState(2) #check checkbox
         self.cg.set_visible(i, True) #make visiabel
         
-def graph_csv(datfile, no_header, ion, d):
-    # read csv to array
-    if no_header:
-        df = pd.read_csv(datfile, sep=',', header=None)
-    else:
-        df = pd.read_csv(datfile, sep=',', header=0)
-    
-    if d:
-        df.drop(df.index[0:1], inplace=True)
-    
+def graph_csv(df, title, ion):    
     fig, ax = plt.subplots(1, 1)
     
     plt.grid()
@@ -392,11 +501,11 @@ def graph_csv(datfile, no_header, ion, d):
     else:
         plt.ioff()
 
-    app = QtGui.QApplication(sys.argv)
+    app = QApplication(sys.argv)
     screen_rect = app.desktop().screenGeometry()
     width, height = screen_rect.width(), screen_rect.height()
 
-    w = MyWidget(fig, plt, ax, df, datfile)
+    w = MyWidget(fig, ax, df, title)
     w.show()
     #window size
     top = w.frameGeometry().top()
@@ -414,16 +523,29 @@ def graph_csv(datfile, no_header, ion, d):
     sys.exit(app.exec_())
     
 if __name__ == '__main__':
+    if sys.version[0] == '2':
+        reload(sys)
+        sys.setdefaultencoding('utf-8')
 
-    parser = ArgumentParser(description="Plot a CSV file")
+    parser = argparse.ArgumentParser(description="Plot a CSV file")
     parser.add_argument("datafile", help="The CSV File")
-    parser.add_argument("-no_header", action='store_true',
-                        help="The CSV file has no header column")
     parser.add_argument("-ion", action='store_true',
                         help="Interactive mode on")
-    parser.add_argument("-d", action='store_true',
-                        help="remove 2nd row")
-    # Require at least one column name
-    args = parser.parse_args()
+    parser.add_argument("args", nargs=argparse.REMAINDER,
+                        help="... remaining arguments passed to pandas.read_csv(..)")
+    args = parser.parse_args()			
     
-    graph_csv(args.datafile, args.no_header, args.ion, args.d)
+    # parsing comand line parameter and pass to function
+    param = dict()
+    for p in args.args:
+        key,val = p.split('=')
+        if val.isdigit():
+            val = int(val)            
+        param[key] = val
+
+    #sep=',', header=0, skiprows=[1], encoding="iso8859-1"
+    df = pd.read_csv(args.datafile, encoding="iso8859-1", **param)
+    if sys.version[0] == '2':
+        graph_csv(df, unicode(args.datafile, 'cp949'), args.ion)
+    else:
+        graph_csv(df, args.datafile, args.ion)

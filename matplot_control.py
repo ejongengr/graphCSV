@@ -143,11 +143,11 @@ def build_check_buttons(fig, width):
                                   [True]*2)
     return checks
     
-class ControlSys(PickControl, KeymapControl, ButtonControl):
+class ControlSys(PickControl, ButtonControl):#, KeymapControl, ):
     def __init__(self, fig, ax):
         self.ax = ax
         PickControl.__init__(self, fig)
-        KeymapControl.__init__(self, fig)
+        #KeymapControl.__init__(self, fig)
         ButtonControl.__init__(self, fig, 0.1, 0.05)
         #self._progress_bar = build_progress_bar(fig, 1, 0.02)
         #self._toggle_buttons = build_check_buttons(fig, 0.1)
@@ -162,11 +162,11 @@ class ControlSys(PickControl, KeymapControl, ButtonControl):
         self.b_autoscale = True
         
         # Key map
-        self.add_key_action('i', 'Display this help menu',
-                            lambda : self._emit('help', None))
+        #self.add_key_action('i', 'Display this help menu',
+        #                    lambda : self._emit('help', None))
         # Button
-        self.add_button_action('Fit H', lambda : self.fit_height())
-        self.add_button_action('Help', lambda : self._emit('help', None))
+        self.add_button_action('Fit Height', lambda : self.fit_height())
+        #self.add_button_action('Help', lambda : self._emit('help', None))
         # Pick
         self.add_pick_action(self.select_line)
         # Event
@@ -175,7 +175,7 @@ class ControlSys(PickControl, KeymapControl, ButtonControl):
 
     def ondraw(self, event):        
         self.count += 1
-        print self.count, ":auto scale", self.b_autoscale
+        print (self.count, ":auto scale", self.b_autoscale)
         if self.b_autoscale == True:
             self.autoscale_y(self.ax)
     
