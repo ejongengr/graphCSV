@@ -21,11 +21,15 @@ Usage
 -------
 Open CSV which header in first row
 ```
-C:\python graphCSV a.csv
+C:\python graphCSV.py a.csv
 ```
 No header file
 ```
-C:\python graphCSV -no_header a.csv
+C:\python graphCSV.py -no_header a.csv
+```
+Merge GUI and Graph
+```
+C:\python graphCSV_one.py a.csv
 ```
 
 Restrictions
@@ -60,6 +64,13 @@ Manual
 
 	Drag left(right) mouse button.
 
+3. Use graphCSV_one.py
+
+	* Cursor is not working, :-C
+	
+    ![Image of graphCSV_one](./one.PNG)
+    
+	    
 License
 -------
 Free to use
